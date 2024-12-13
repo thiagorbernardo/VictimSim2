@@ -28,10 +28,7 @@ class Stack:
         return len(self.items) == 0
 
 class Explorer(AbstAgent):
-    """ class attribute """
-    MAX_DIFFICULTY = 1             # the maximum degree of difficulty to enter into a cell
-    
-    def __init__(self, env, config_file, resc):
+    def __init__(self, env, config_file, resc, id):
         """ Construtor do agente random on-line
         @param env: a reference to the environment 
         @param config_file: the absolute path to the explorer's config file
@@ -39,8 +36,8 @@ class Explorer(AbstAgent):
         """
 
         super().__init__(env, config_file)
+        self.id = id
         self.walk_stack = Stack()  # a stack to store the movements
-        self.walk_time = 0         # time consumed to walk when exploring (to decide when to come back)
         self.set_state(VS.ACTIVE)  # explorer is active since the begin
         self.resc = resc           # reference to the rescuer agent
         self.x = 0                 # current x position relative to the origin 0
@@ -48,6 +45,7 @@ class Explorer(AbstAgent):
         self.map = Map()           # create a map for representing the environment
         self.victims = {}          # a dictionary of found victims: (seq): ((x,y), [<vs>])
                                    # the key is the seq number of the victim,(x,y) the position, <vs> the list of vital signals
+        
 
         # put the current position - the base - in the map
         self.map.add((self.x, self.y), 1, VS.NO_VICTIM, self.check_walls_and_lim())
@@ -58,51 +56,73 @@ class Explorer(AbstAgent):
         """
         # Check the neighborhood walls and grid limits
         obstacles = self.check_walls_and_lim()
-    
+        
+        # Different exploration patterns based on explorer ID
+        if self.id == 0:   # First explorer - prioritize up and right
+            position = [0, 1, 2, 3, 4, 5, 6, 7]  # Original order (up, up-right, right, etc)
+        elif self.id == 1: # Second explorer - prioritize down and right
+            position = [4, 3, 2, 1, 0, 7, 6, 5]  # Start with down, down-right, right
+        elif self.id == 2: # Third explorer - prioritize up and left
+            position = [0, 7, 6, 5, 4, 3, 2, 1]  # Start with up, up-left, left
+        else:             # Fourth explorer - prioritize down and left
+            position = [4, 5, 6, 7, 0, 1, 2, 3]  # Start with down, down-left, left
+        
         # Loop until a CLEAR position is found
+        i = 0
         while True:
-            # Get a random direction
-            direction = random.randint(0, 7)
-            # Check if the corresponding position in walls_and_lim is CLEAR
-            if obstacles[direction] == VS.CLEAR:
-                return Explorer.AC_INCR[direction]
+            # Pega coordenadas atual e soma com o caminho a ser andado
+            dx, dy = Explorer.AC_INCR[position[i]]
+            coord = (self.x+dx, self.y+dy)
+            
+            # Se o mapa não foi explorado , e a coordenada não é muro e nem fim
+            if (obstacles[position[i]] == VS.CLEAR) and self.map.get(coord) == None:
+                coord = (dx, dy)
+                return coord
+            
+            #se nenhuma coordenada é valida começa a voltar os passos
+            if i == 7:
+                i = 0
+                if self.walk_stack.items == None:
+                    continue
+                else:
+                    self.come_back()
+            i += 1
         
     def explore(self):
         # get an random increment for x and y       
         dx, dy = self.get_next_position()
+        # print(dx,dy)
+        #input()
 
-        # Moves the body to another position  
+        # Moves the body to another position
         rtime_bef = self.get_rtime()
         result = self.walk(dx, dy)
         rtime_aft = self.get_rtime()
-
 
         # Test the result of the walk action
         # Should never bump, but for safe functionning let's test
         if result == VS.BUMPED:
             # update the map with the wall
             self.map.add((self.x + dx, self.y + dy), VS.OBST_WALL, VS.NO_VICTIM, self.check_walls_and_lim())
-            #print(f"{self.NAME}: Wall or grid limit reached at ({self.x + dx}, {self.y + dy})")
+            # print(f"{self.NAME}: Wall or grid limit reached at ({self.x + dx}, {self.y + dy})")
 
         if result == VS.EXECUTED:
             # check for victim returns -1 if there is no victim or the sequential
             # the sequential number of a found victim
             self.walk_stack.push((dx, dy))
+            
 
             # update the agent's position relative to the origin
             self.x += dx
-            self.y += dy
-
-            # update the walk time
-            self.walk_time = self.walk_time + (rtime_bef - rtime_aft)
-            #print(f"{self.NAME} walk time: {self.walk_time}")
+            self.y += dy     
+            #print("coordenadas: ",self.x,self.y)     
 
             # Check for victims
             seq = self.check_for_victim()
             if seq != VS.NO_VICTIM:
                 vs = self.read_vital_signals()
                 self.victims[vs[0]] = ((self.x, self.y), vs)
-                #print(f"{self.NAME} Victim found at ({self.x}, {self.y}), rtime: {self.get_rtime()}")
+                # print(f"{self.NAME} Victim found at ({self.x}, {self.y}), rtime: {self.get_rtime()}")
                 #print(f"{self.NAME} Seq: {seq} Vital signals: {vs}")
             
             # Calculates the difficulty of the visited cell
@@ -138,23 +158,22 @@ class Explorer(AbstAgent):
         """ The agent chooses the next action. The simulator calls this
         method at each cycle. Must be implemented in every agent"""
 
-        # forth and back: go, read the vital signals and come back to the position
-
-        time_tolerance = 2* self.COST_DIAG * Explorer.MAX_DIFFICULTY + self.COST_READ
-
-        # keeps exploring while there is enough time
-        if  self.walk_time < (self.get_rtime() - time_tolerance):
+        consumed_time = self.TLIM - self.get_rtime()
+        if consumed_time < self.get_rtime():
             self.explore()
             return True
 
-        # no more come back walk actions to execute or already at base
+        # time to come back to the base
         if self.walk_stack.is_empty() or (self.x == 0 and self.y == 0):
-            # time to pass the map and found victims to the master rescuer
+            # time to wake up the rescuer
+            # pass the walls and the victims (here, they're empty)
+            # print(f"{self.NAME}: rtime {self.get_rtime()}, invoking the rescuer")
+            #input(f"{self.NAME}: type [ENTER] to proceed")
+            # self.resc.go_save_victims(self.map, self.victims)
             self.resc.sync_explorers(self.map, self.victims)
-            # finishes the execution of this agent
             return False
-        
-        # proceed to the base
+
         self.come_back()
         return True
+
 
