@@ -22,62 +22,70 @@
 ## (10, 8): (3.0, 10, [VS.WALL, VS.WALL, VS.CLEAR, VS.CLEAR, VS.WALL, VS.END, VS.END, VS.END])
 ## the position x=10, y=8 has a difficulty of 3.0 and the victim number 10 is there.
 ##   +--+--+--+--+
-##   !!!|XX|XX|    
+##   !!!|XX|XX|
 ##   +--+--+--+--+      AG is the currently visited position (10,8) where the victim 10 is located
 ##   !!!|AG|  |         XX is a wall (
 ##   +--+--+--+--+      !! is the end of the grid
-##   !!!|XX|  |       
+##   !!!|XX|  |
 ##   +--+--+--+--+
 ##
 ## Example of a map entry WITHOUT VICTIM:
-## (11, 8): (0, VS.NO_VICTIM,[VS.WALL, VS.CLEAR, VS.CLEAR, VS.CLEAR, VS.CLEAR, VS.WALL, VS.CLEAR, VS.WALL])   
+## (11, 8): (0, VS.NO_VICTIM,[VS.WALL, VS.CLEAR, VS.CLEAR, VS.CLEAR, VS.CLEAR, VS.WALL, VS.CLEAR, VS.WALL])
 ##
 from vs.constants import VS
+
 
 class Map:
     def __init__(self):
         self.data = {}
 
-    
     def in_map(self, coord):
         if coord in self.data:
             return True
 
-        return False        
-                
+        return False
+
     def get(self, coord):
-        """ get all the values associated to a coord key: a triple (diff, vic_id, [actions' results])
-            @param coord: a pair (x, y), the key of the dictionary"""
+        """get all the values associated to a coord key: a triple (diff, vic_id, [actions' results])
+        @param coord: a pair (x, y), the key of the dictionary"""
         return self.data.get(coord)
 
     def get_difficulty(self, coord):
-        """ get only the difficulty value associated to a coord key: a triple (diff, vic_id, [actions' results])
-            @param coord: a pair (x, y), the key of the dictionary"""
+        """get only the difficulty value associated to a coord key: a triple (diff, vic_id, [actions' results])
+        @param coord: a pair (x, y), the key of the dictionary"""
         return self.data.get(coord)[0]
 
     def get_vic_id(self, coord):
-        """ get only the victim id number associated to a coord key: a triple (diff, vic_id, [actions' results])
-            @param coord: a pair (x, y), the key of the dictionary"""
+        """get only the victim id number associated to a coord key: a triple (diff, vic_id, [actions' results])
+        @param coord: a pair (x, y), the key of the dictionary"""
         return self.data.get(coord)[1]
 
     def get_actions_results(self, coord):
-        """ get only the actions' results associated to a coord key: a triple (diff, vic_id, [actions' results])
-            @param coord: a pair (x, y), the key of the dictionary"""
+        """get only the actions' results associated to a coord key: a triple (diff, vic_id, [actions' results])
+        @param coord: a pair (x, y), the key of the dictionary"""
         return self.data.get(coord)[2]
 
-        
     def add(self, coord, difficulty, vic_id, actions_res):
-        """ @param coord: a pair (x, y)
-            @param difficulty: the degree of difficulty to acess the cell at coord
-            @param vic_id: the id number of the victim returned by the Environment
-            @param actions_res: the results of the possible actions from the position (x, y) """
+        """@param coord: a pair (x, y)
+        @param difficulty: the degree of difficulty to acess the cell at coord
+        @param vic_id: the id number of the victim returned by the Environment
+        @param actions_res: the results of the possible actions from the position (x, y)
+        """
         self.data[coord] = (difficulty, vic_id, actions_res)
 
     def update(self, another_map):
-        """ Itupdates the current map with the entries of another map.
-            If the keys are identical, the entry of the another map replaces the entry of the current map.
-            @param another_map: other instance of Map """
+        """Itupdates the current map with the entries of another map.
+        If the keys are identical, the entry of the another map replaces the entry of the current map.
+        @param another_map: other instance of Map"""
         self.data.update(another_map.data)
+
+    def get_min_max_map(self):
+        min_x = min(key[0] for key in self.data.keys())
+        max_x = max(key[0] for key in self.data.keys())
+        min_y = min(key[1] for key in self.data.keys())
+        max_y = max(key[1] for key in self.data.keys())
+
+        return min_x, max_x, min_y, max_y
 
     def draw(self):
         if not self.data:
@@ -101,6 +109,3 @@ class Map:
                 else:
                     row += f"[     ?     ] "
             print(row)
-
-
-    

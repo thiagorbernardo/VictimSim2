@@ -21,7 +21,19 @@ from vs.physical_agent import PhysAgent
 from vs.constants import VS
 from bfs import BFS
 from abc import ABC, abstractmethod
+import numpy as np
+import heapq
 
+from sklearn.ensemble import RandomForestClassifier
+from sklearn import datasets, linear_model
+
+class No:
+    def __init__(self):        
+        self.parent_x = 0       #coordenada pai x
+        self.parent_y = 0
+        self.fn = float('inf')  #custo total g+h
+        self.gn = float('inf')  #Custo apartir do nó inicial
+        self.hn = 0              #Custo do nó até a vitima
 
 ## Classe que define o Agente Rescuer com um plano fixo
 class Rescuer(AbstAgent):
@@ -49,6 +61,162 @@ class Rescuer(AbstAgent):
         self.y = 0                   # the current y position of the rescuer when executing the plan
         self.clusters = clusters     # the clusters of victims this agent should take care of - see the method cluster_victims
         self.sequences = clusters    # the sequence of visit of victims for each cluster 
+        
+                
+        # Starts in IDLE state.
+        # It changes to ACTIVE when the map arrives
+        self.set_state(VS.IDLE)
+
+    # Check if a no is unblocked
+    def is_unblocked(grid, row, col):
+        return grid[row][col] == 1
+    
+    # Check if a no is the destination
+    def is_destination(self,row, col, dest):
+        return row == dest[0] and col == dest[1]
+    
+    #Calcula o valor de h
+    def calculate_h_value(self,row, col, dest):
+        return ((row - dest[0]) ** 2 + (col - dest[1]) ** 2) ** 0.5
+
+    def track(self,no_details, dest):
+        print("The Path is ")
+        row = dest[0]
+        col = dest[1]
+        self.plan_x = row
+        self.plan_y = col
+        
+        dx = 0
+        dy = 0
+
+        
+        plano = []
+        plano.append((dx, dy, True))
+        # Trace the path from destination to source using parent cells
+        while not (no_details[row][col].parent_i == row and no_details[row][col].parent_j == col):
+            #self.plan.append((row, col,False))
+            temp_row = no_details[row][col].parent_i
+            temp_col = no_details[row][col].parent_j
+
+            dx = row - temp_row
+            dy = col - temp_col
+
+            row = temp_row
+            col = temp_col
+            # Add the source cell to the path
+            plano.append((dx, dy,False))
+        plano.reverse()
+        self.plan.extend(plano)
+
+    def a_star_search(self, src, dest):
+        # Check if the source and destination are valid
+
+        # Check if we are already at the destination
+        if self.is_destination(src[0], src[1], dest):
+            print("We are already at the destination")
+            return
+
+        #TODO: Não tenho tamannho do mapa para inicializar as listas
+        min_x,max_x,min_y,max_y = self.map.get_min_max_map()
+        max_y = max_y - min_y + 1
+        max_x = max_x - min_x + 1
+        
+        # Inicializa lista fechada de nós
+        closed_list = [[False for _ in range(max_y)] for _ in range(max_x)]
+        #Inicializa os nós do mapa inteiro
+        no_details = [[No() for _ in range(max_y)] for _ in range(max_x)]
+
+        # Initialize the start no details
+        i = src[0]
+        j = src[1]
+        no_details[i][j].fn = 0
+        no_details[i][j].gn = 0
+        no_details[i][j].hn = 0
+        no_details[i][j].parent_i = i
+        no_details[i][j].parent_j = j
+
+        #Inicializa lista aberta (Nos para ser visitado) com o começo em src
+        open_list = []
+        heapq.heappush(open_list, (0.0, i, j))
+
+        # Initialize the flag for whether destination is found
+        found_dest = False
+
+        # Main loop of A* search algorithm
+        while len(open_list) > 0:
+            # Remove o elemento com o menor f
+            p = heapq.heappop(open_list)
+
+            # Marca na lista fechada que a coordenada (i,j) foi visitada
+            i = p[1]
+            j = p[2]
+            closed_list[i][j] = True
+
+            
+            # Pega direção disponivel
+            actions_res = self.map.get((self.plan_x, self.plan_y))[2]
+
+            for k, ar in enumerate(actions_res):
+                #Se caminho não for livre, apenas pulamos. 
+                #No mapa não foi implementado VS.UNKS
+                if ar != VS.CLEAR:
+                    print(f"{self.NAME} {k} not clear")
+                    continue
+                
+                dir = Rescuer.AC_INCR[k]
+               
+               
+                new_i = i + dir[0]
+                new_j = j + dir[1]
+                
+
+                #Verifica se o sucessor é valido. 
+                difficulty = self.map.get((new_i,new_j))
+                if difficulty == None:
+                    #print("posição mapa NUla")
+                    continue
+
+        
+                if self.is_destination(new_i, new_j, dest):
+                    # Set the parent of the destination no
+                    no_details[new_i][new_j].parent_i = i
+                    no_details[new_i][new_j].parent_j = j
+                    print("The destination no is found")
+                    self.plan_rtime -= no_details[new_i][new_j].gn
+                    self.plan_walk_time += no_details[new_i][new_j].gn
+                    if (self.plan_walk_time < self.plan_rtime):
+                        self.plan_rtime =+ no_details[new_i][new_j].gn
+                        self.plan_walk_time -= no_details[new_i][new_j].gn
+                        return
+                    self.track(no_details,(new_i,new_j))
+                    found_dest = True
+                    
+                    print ("AQUI\n CUSTOS: ", self.plan_rtime,self.plan_visited)
+                    return
+                else:
+                 
+                    
+                    # Calculate the new f, g, and h values
+                    if dir[0] == 0 or dir[1] == 0:
+                        g_new = no_details[i][j].gn + self.COST_LINE * difficulty[0]
+                    else:
+                        g_new = no_details[i][j].gn +self.COST_DIAG * difficulty[0]
+                   
+                    h_new = self.calculate_h_value(new_i, new_j, dest)
+                    f_new = g_new + h_new
+
+                    # If the no is not in the open list or the new f value is smaller
+                    if no_details[new_i][new_j].fn == float('inf') or no_details[new_i][new_j].fn > f_new:
+                        # Add the no to the open list
+                        heapq.heappush(open_list, (f_new, new_i, new_j))
+                        # Update the no details
+                        no_details[new_i][new_j].fn = f_new
+                        no_details[new_i][new_j].gn = g_new
+                        no_details[new_i][new_j].hn = h_new
+                        no_details[new_i][new_j].parent_i = i
+                        no_details[new_i][new_j].parent_j = j
+
+        # If the destination is not found after visiting all nos
         
                 
         # Starts in IDLE state.
@@ -129,7 +297,7 @@ class Rescuer(AbstAgent):
             This method should add the vital signals(vs) of the self.victims dictionary with these two values.
 
             This implementation assigns random values to both, severity value and class"""
-
+        
         for vic_id, values in self.victims.items():
             severity_value = random.uniform(0.1, 99.9)          # to be replaced by a regressor 
             severity_class = random.randint(1, 4)               # to be replaced by a classifier
@@ -146,6 +314,11 @@ class Rescuer(AbstAgent):
 
         new_sequences = []
 
+        
+
+
+
+        
         for seq in self.sequences:   # a list of sequences, being each sequence a dictionary
             seq = dict(sorted(seq.items(), key=lambda item: item[1]))
             new_sequences.append(seq)       
@@ -159,31 +332,35 @@ class Rescuer(AbstAgent):
 
 
         # let's instantiate the breadth-first search
-        bfs = BFS(self.map, self.COST_LINE, self.COST_DIAG)
-
-        # for each victim of the first sequence of rescue for this agent, we're going go calculate a path
-        # starting at the base - always at (0,0) in relative coords
-        
-        if not self.sequences:   # no sequence assigned to the agent, nothing to do
-            return
-
-        # we consider only the first sequence (the simpler case)
-        # The victims are sorted by x followed by y positions: [vic_id]: ((x,y), [<vs>]
-
+       
+        self.plan_visited.add((0,0)) # always start from the base, so it is already visited
+        difficulty, vic_seq, actions_res = self.map.get((0,0))
+        #self.__depth_search(actions_res)
+        vic = []
         sequence = self.sequences[0]
-        start = (0,0) # always from starting at the base
+        start = (0,0)
+
         for vic_id in sequence:
             goal = sequence[vic_id][0]
-            plan, time = bfs.search(start, goal, self.plan_rtime)
-            self.plan = self.plan + plan
-            self.plan_rtime = self.plan_rtime - time
-            start = goal
+            self.a_star_search((self.plan_x,self.plan_y),goal)
 
-        # Plan to come back to the base
-        goal = (0,0)
-        plan, time = bfs.search(start, goal, self.plan_rtime)
-        self.plan = self.plan + plan
-        self.plan_rtime = self.plan_rtime - time
+        #while (vic):
+        #    coord,vs=vic.pop()
+        #    self.a_star_search((self.plan_x,self.plan_y),coord)
+
+        # Reverse the path to get the path from source to destination
+        #self.plan.reverse()
+        # push actions into the plan to come back to the base
+        if self.plan == []:
+            return
+
+        come_back_plan = []
+
+        for a in reversed(self.plan):
+            # triple: dx, dy, no victim - when coming back do not rescue any victim
+            come_back_plan.append((a[0]*-1, a[1]*-1, False))
+
+        self.plan = self.plan + come_back_plan
            
 
     def sync_explorers(self, explorer_map, victims):
@@ -266,7 +443,7 @@ class Rescuer(AbstAgent):
            return False
 
         # Takes the first action of the plan (walk action) and removes it from the plan
-        dx, dy = self.plan.pop(0)
+        dx, dy,there_is_vict = self.plan.pop(0)
         #print(f"{self.NAME} pop dx: {dx} dy: {dy} ")
 
         # Walk - just one step per deliberation
@@ -289,4 +466,3 @@ class Rescuer(AbstAgent):
             print(f"{self.NAME} Plan fail - walk error - agent at ({self.x}, {self.x})")
             
         return True
-
