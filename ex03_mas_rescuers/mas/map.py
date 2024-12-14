@@ -85,6 +85,11 @@ class Map:
         min_y = min(key[1] for key in self.data.keys())
         max_y = max(key[1] for key in self.data.keys())
 
+        print("Min X: ", min_x)
+        print("Max X: ", max_x)
+        print("Min Y: ", min_y)
+        print("Max Y: ", max_y)
+
         return min_x, max_x, min_y, max_y
 
     def draw(self):

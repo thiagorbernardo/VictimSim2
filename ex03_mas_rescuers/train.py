@@ -223,17 +223,17 @@ def plot_clusters(df, save_path="clusters/cluster_visualization.png"):
 
     # Create marker styles for different classes
     markers = {
-        1: "X",
-        2: "s",
-        3: "^",
-        4: "o",
-    }  # X for critical, square for unstable, triangle for pot. stable, circle for stable
+        1: "X",  # Critical
+        2: "s",  # Unstable
+        3: "^",  # Potentially stable
+        4: "o",  # Stable
+    }
     marker_sizes = {
         1: 150,
         2: 100,
         3: 80,
         4: 60,
-    }  # Larger markers for more critical victims
+    }
 
     # Plot each class separately for proper legend
     for classe in sorted(df["classe"].unique()):
@@ -242,46 +242,44 @@ def plot_clusters(df, save_path="clusters/cluster_visualization.png"):
             plt.scatter(
                 df[mask]["x"],
                 df[mask]["y"],
-                c=[cluster_colors[cluster - 1]],  # -1 because clusters are 1-based
+                c=[cluster_colors[cluster - 1]],
                 marker=markers[classe],
                 s=marker_sizes[classe],
                 alpha=0.7,
-                label=(
-                    f"Class {classe} - Cluster {cluster}" if classe == 1 else None
-                ),  # Only add cluster to legend once
+                label=f"Cluster {cluster} - Class {classe}",
             )
 
-    # Add legend
-    class_legend_elements = [
-        plt.Line2D(
-            [0],
-            [0],
-            marker=markers[classe],
-            color="w",
-            markerfacecolor="gray",
-            markersize=10,
-            label=f"Class {classe}",
-        )
-        for classe in sorted(df["classe"].unique())
+    # Create a custom legend
+    legend_labels = {1: "Critical", 2: "Unstable", 3: "Potentially Stable", 4: "Stable"}
+
+    # Sort legend entries by cluster first, then by class
+    handles, labels = plt.gca().get_legend_handles_labels()
+    # Create a list of tuples (cluster_number, class_number, handle, label)
+    legend_entries = []
+    for h, l in zip(handles, labels):
+        cluster = int(l.split()[1])
+        classe = int(l.split()[-1])
+        legend_entries.append((cluster, classe, h, l))
+
+    # Sort by cluster first, then by class
+    legend_entries.sort(key=lambda x: (x[0], x[1]))
+
+    # Create new labels with descriptive text
+    new_labels = [
+        f"Cluster {entry[0]} - {legend_labels[entry[1]]}" for entry in legend_entries
     ]
 
-    cluster_legend_elements = [
-        plt.Line2D(
-            [0],
-            [0],
-            marker="o",
-            color="w",
-            markerfacecolor=color,
-            markersize=10,
-            label=f"Cluster {i+1}",
-        )
-        for i, color in enumerate(cluster_colors)
-    ]
+    # Extract sorted handles
+    sorted_handles = [entry[2] for entry in legend_entries]
 
-    # Create two legends
-    plt.legend(handles=cluster_legend_elements, loc="upper left", title="Clusters")
+    # Add the legend with both colors and markers
     plt.legend(
-        handles=class_legend_elements, loc="upper right", title="Severity Classes"
+        sorted_handles,
+        new_labels,
+        loc="center left",
+        bbox_to_anchor=(1, 0.5),
+        title="Clusters and Severity Classes",
+        borderaxespad=0.5,
     )
 
     plt.title("Victim Clusters and Severity Classes")
@@ -290,6 +288,9 @@ def plot_clusters(df, save_path="clusters/cluster_visualization.png"):
 
     # Add grid
     plt.grid(True, linestyle="--", alpha=0.7)
+
+    # Adjust layout to prevent legend cutoff
+    plt.tight_layout()
 
     # Save the plot
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
