@@ -118,7 +118,7 @@ tot_walls=0      # total of walls
 
 
 # Read clusters from all files in the cluster directory
-cluster_files = [file for file in os.listdir(cluster_folder) if file.startswith("cluster")]
+cluster_files = [file for file in os.listdir(cluster_folder) if file.startswith("cluster") and file.endswith(".txt")]
 
 cluster_data = {}
 
@@ -133,7 +133,7 @@ for file_name in cluster_files:
                 if i == 3:  # Assuming the fourth column contains the severity (a float)
                     converted_elements.append(float(element))
                 else:       # all other elements are integers
-                    converted_elements.append(int(element))
+                    converted_elements.append(int(float(element)))
             cluster.append(tuple(converted_elements))
 
         cluster_data[file_name] = cluster
@@ -154,7 +154,7 @@ for file_name in seq_files:
                 if i == 3:  # Assuming the fourth column contains the severity (a float)
                     converted_elements.append(float(element))
                 else:       # all other elements are integers
-                    converted_elements.append(int(element))
+                    converted_elements.append(int(float(element)))
             seq.append(tuple(converted_elements))
 
         seq_data[file_name] = seq

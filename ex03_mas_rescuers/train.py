@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import KFold, train_test_split
@@ -82,10 +83,10 @@ def evaluate_models(classifier, regressor, X_test, y_class_test, y_reg_test):
     print(f"Regressor MSE: {reg_mse:.4f}")
 
 
-def train_and_evaluate_models():
+def train_and_evaluate_models(dataset):
     """Train and evaluate different models using cross-validation."""
     # Load training data
-    data = load_vitals("datasets/data_300v_90x90/env_vital_signals.txt")
+    data = load_vitals(f"datasets/{dataset}/env_vital_signals.txt")
     X, y_class, y_reg, scaler = preprocess_data(data)
 
     # Split the data into training (75%) and testing (25%)
@@ -399,13 +400,24 @@ def create_clusters(env_victims, env_vitals, n_clusters=4):
 
 
 if __name__ == "__main__":
-    # Train models
-    # best_classifier, best_regressor, scaler = train_and_evaluate_models()
-    # print("\nModels have been trained and saved in the 'models' directory.")
+    args = sys.argv[1:]
+    if len(args) < 2:
+        print("Usage: python train.py <dataset> <train_or_cluster>")
+        sys.exit(1)
+    dataset = args[0]
 
-    # Create clusters
-    create_clusters(
-        load_victims("datasets/data_300v_90x90/env_victims.txt"),
-        load_vitals("datasets/data_300v_90x90/env_vital_signals.txt"),
-        n_clusters=4,
-    )
+    train_or_cluster = args[1]
+    if train_or_cluster == "train":
+        # Train models
+        best_classifier, best_regressor, scaler = train_and_evaluate_models(dataset)
+        print("\nModels have been trained and saved in the 'models' directory.")
+    elif train_or_cluster == "cluster":
+        # Create clusters
+        create_clusters(
+            load_victims(f"datasets/{dataset}/env_victims.txt"),
+            load_vitals(f"datasets/{dataset}/env_vital_signals.txt"),
+            n_clusters=4,
+        )
+    else:
+        print("Invalid argument. Please use 'train' or 'cluster'.")
+        sys.exit(1)

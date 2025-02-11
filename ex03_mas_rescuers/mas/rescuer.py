@@ -94,7 +94,7 @@ class Rescuer(AbstAgent):
         return ((row - dest[0]) ** 2 + (col - dest[1]) ** 2) ** 0.5
 
     def track(self, no_details, dest):
-        print("The Path is ")
+        # print("The Path is ")
         row = dest[0]
         col = dest[1]
         self.plan_x = row
@@ -193,7 +193,7 @@ class Rescuer(AbstAgent):
                     # Set the parent of the destination no
                     no_details[new_i][new_j].parent_i = i
                     no_details[new_i][new_j].parent_j = j
-                    print("The destination no is found")
+                    # print("The destination no is found")
                     self.plan_rtime -= no_details[new_i][new_j].gn
                     self.plan_walk_time += no_details[new_i][new_j].gn
                     if self.plan_walk_time < self.plan_rtime:
@@ -270,10 +270,6 @@ class Rescuer(AbstAgent):
         for i in self.victims:
             vic.append(self.victims[i])
 
-        # (
-        #     self.victims
-        # )  # (7, 0) [15, 18.371217, 1.645462, -4.333333, 185.921773, 7.973052]
-
         data = []
         while vic:
             coord, vs = vic.pop()
@@ -337,12 +333,13 @@ class Rescuer(AbstAgent):
         # Combine features with weights
         # Higher weights for gravity and class to prioritize severity
         # Format: [x, y, gravity * weight, class * weight]
-        GRAVITY_WEIGHT = 1.5
+        SPATIAL_FEATURE_WEIGHT = 1.0
+        GRAVITY_WEIGHT = 1.2
         CLASS_WEIGHT = 1.2
 
         clustering_features = np.hstack(
             [
-                spatial_features,  # x, y coordinates (weight 1.0)
+                spatial_features * SPATIAL_FEATURE_WEIGHT,  # x, y coordinates (weight 1.0)
                 gravity_scaled * GRAVITY_WEIGHT,  # gravity with higher weight
                 class_scaled * CLASS_WEIGHT,  # class importance with higher weight
             ]
@@ -405,6 +402,8 @@ class Rescuer(AbstAgent):
         print("Cluster 2 Length: ", len(cluster_2))
         print("Cluster 3 Length: ", len(cluster_3))
         print("Cluster 4 Length: ", len(cluster_4))
+
+        self.plot_clusters(df)
 
         return [cluster_1, cluster_2, cluster_3, cluster_4]
 
@@ -515,6 +514,7 @@ class Rescuer(AbstAgent):
             rescuers[0] = self  # the master rescuer is the index 0 agent
 
             # Assign the cluster the master agent is in charge of
+            # TODO: @THIAGO OLHAR ESSA PARTE
             self.clusters = [clusters_of_vic[0]]  # the first one
 
             # Instantiate the other rescuers and assign the clusters to them
@@ -589,3 +589,92 @@ class Rescuer(AbstAgent):
             )
 
         return True
+
+    def plot_clusters(self, df, save_path="clusters/cluster_visualization.png"):
+        """Plot the clusters with victims colored by cluster and markers by severity class."""
+        plt.figure(figsize=(12, 8))
+
+        # Create color palette for clusters
+        cluster_colors = sns.color_palette("husl", n_colors=df["cluster"].nunique())
+
+        # Create marker styles for different classes
+        markers = {
+            1: "X",  # Critical
+            2: "s",  # Unstable
+            3: "^",  # Potentially stable
+            4: "o",  # Stable
+        }
+        marker_sizes = {
+            1: 150,
+            2: 100,
+            3: 80,
+            4: 60,
+        }
+
+        # Plot each class separately for proper legend
+        for classe in sorted(df["classe"].unique()):
+            for cluster in sorted(df["cluster"].unique()):
+                mask = (df["classe"] == classe) & (df["cluster"] == cluster)
+                plt.scatter(
+                    df[mask]["x"],
+                    df[mask]["y"],
+                    c=[cluster_colors[cluster - 1]],
+                    marker=markers[classe],
+                    s=marker_sizes[classe],
+                    alpha=0.7,
+                    label=f"Cluster {cluster} - Class {classe}",
+                )
+
+        # Create a custom legend
+        legend_labels = {
+            1: "Critical",
+            2: "Unstable",
+            3: "Potentially Stable",
+            4: "Stable",
+        }
+
+        # Sort legend entries by cluster first, then by class
+        handles, labels = plt.gca().get_legend_handles_labels()
+        # Create a list of tuples (cluster_number, class_number, handle, label)
+        legend_entries = []
+        for h, l in zip(handles, labels):
+            cluster = int(l.split()[1])
+            classe = int(l.split()[-1])
+            legend_entries.append((cluster, classe, h, l))
+
+        # Sort by cluster first, then by class
+        legend_entries.sort(key=lambda x: (x[0], x[1]))
+
+        # Create new labels with descriptive text
+        new_labels = [
+            f"Cluster {entry[0]} - {legend_labels[entry[1]]}"
+            for entry in legend_entries
+        ]
+
+        # Extract sorted handles
+        sorted_handles = [entry[2] for entry in legend_entries]
+
+        # Add the legend with both colors and markers
+        plt.legend(
+            sorted_handles,
+            new_labels,
+            loc="center left",
+            bbox_to_anchor=(1, 0.5),
+            title="Clusters and Severity Classes",
+            borderaxespad=0.5,
+        )
+
+        plt.title("Victim Clusters and Severity Classes")
+        plt.xlabel("X Coordinate")
+        plt.ylabel("Y Coordinate")
+
+        # Add grid
+        plt.grid(True, linestyle="--", alpha=0.7)
+
+        # Adjust layout to prevent legend cutoff
+        plt.tight_layout()
+
+        # Save the plot
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        plt.close()

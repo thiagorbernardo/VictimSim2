@@ -56,17 +56,30 @@ class Explorer(AbstAgent):
         """
         # Check the neighborhood walls and grid limits
         obstacles = self.check_walls_and_lim()
+
+            # 0: (0, -1),             #  u: Up
+            # 1: (1, -1),             # ur: Upper right diagonal
+            # 2: (1, 0),              #  r: Right
+            # 3: (1, 1),              # dr: Down right diagonal
+            # 4: (0, 1),              #  d: Down
+            # 5: (-1, 1),             # dl: Down left left diagonal
+            # 6: (-1, 0),             #  l: Left
+            # 7: (-1, -1)             # ul: Up left diagonal
         
         # Different exploration patterns based on explorer ID
-        if self.id == 0:   # First explorer - prioritize up and right
-            position = [0, 1, 2, 3, 4, 5, 6, 7]  # Original order (up, up-right, right, etc)
-        elif self.id == 1: # Second explorer - prioritize down and right
-            position = [4, 3, 2, 1, 0, 7, 6, 5]  # Start with down, down-right, right
-        elif self.id == 2: # Third explorer - prioritize up and left
-            position = [0, 7, 6, 5, 4, 3, 2, 1]  # Start with up, up-left, left
-        else:             # Fourth explorer - prioritize down and left
-            position = [4, 5, 6, 7, 0, 1, 2, 3]  # Start with down, down-left, left
-        
+        if self.id == 1: # First explorer - prioritize up - left
+            # left, upleft, downleft, up, down, right, downright, upright
+            position = [6, 7, 5, 0, 4, 2, 3, 1]
+        elif self.id == 2: # Second explorer - prioritize up - right
+            # right, upright, up, down, left, downleft, upleft, downright
+            position = [2, 1, 0, 4, 6, 5, 7, 3]
+        elif self.id == 3: # Third explorer - prioritize down - left
+            # left, downleft, down, up, right, upright, upleft, downright
+            position = [6, 5, 4, 0, 2, 1, 7, 3]
+        else: # Fourth explorer - prioritize down - right
+            # right, downright, down, up, left, upleft, downleft, upright
+            position = [2, 3, 4, 0, 6, 7, 5, 1]
+
         # Loop until a CLEAR position is found
         i = 0
         while True:
