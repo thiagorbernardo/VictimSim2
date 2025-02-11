@@ -261,11 +261,6 @@ class Rescuer(AbstAgent):
         @returns: a list of clusters where each cluster is a dictionary in the format [vic_id]: ((x,y), [<vs>])
                   such as vic_id is the victim id, (x,y) is the victim's position, and [<vs>] the list of vital signals
                   including the severity value and the corresponding label"""
-
-        classifier = joblib.load("models/best_classifier.joblib")
-        regressor = joblib.load("models/best_regressor.joblib")
-        scaler = joblib.load("models/scaler.joblib")
-
         vic = []
         for i in self.victims:
             vic.append(self.victims[i])
@@ -283,8 +278,8 @@ class Rescuer(AbstAgent):
                     vs[3],
                     vs[4],
                     vs[5],
-                    0,
-                    0,
+                    vs[6],
+                    vs[7],
                 ]
             )
 
@@ -299,17 +294,10 @@ class Rescuer(AbstAgent):
                 "qPA",
                 "pulso",
                 "freq_resp",
-                "gravidade",
+                "grav",
                 "classe",
             ],
         )
-
-        # Prepare features for prediction
-        features = scaler.transform(df[["qPA", "pulso", "freq_resp"]])
-
-        # Make predictions
-        df["grav"] = regressor.predict(features)
-        df["classe"] = classifier.predict(features)
 
         # Create clusters directory if it doesn't exist
         os.makedirs("clusters", exist_ok=True)
@@ -339,7 +327,8 @@ class Rescuer(AbstAgent):
 
         clustering_features = np.hstack(
             [
-                spatial_features * SPATIAL_FEATURE_WEIGHT,  # x, y coordinates (weight 1.0)
+                spatial_features
+                * SPATIAL_FEATURE_WEIGHT,  # x, y coordinates (weight 1.0)
                 gravity_scaled * GRAVITY_WEIGHT,  # gravity with higher weight
                 class_scaled * CLASS_WEIGHT,  # class importance with higher weight
             ]
@@ -413,12 +402,20 @@ class Rescuer(AbstAgent):
 
         This implementation assigns random values to both, severity value and class"""
 
+        classifier = joblib.load("models/best_classifier.joblib")
+        regressor = joblib.load("models/best_regressor.joblib")
+        scaler = joblib.load("models/scaler.joblib")
+
         for vic_id, values in self.victims.items():
-            severity_value = random.uniform(0.1, 99.9)  # to be replaced by a regressor
-            severity_class = random.randint(1, 4)  # to be replaced by a classifier
-            values[1].extend(
-                [severity_value, severity_class]
-            )  # append to the list of vital signals; values is a pair( (x,y), [<vital signals list>] )
+            # features = scaler.transform(values[1][["qPA", "pulso", "freq_resp"]])
+            feature_df = pd.DataFrame(
+                [[values[1][3], values[1][4], values[1][5]]],
+                columns=["qPA", "pulso", "freq_resp"],
+            )
+            features = scaler.transform(feature_df)
+            severity_value = regressor.predict(features)
+            severity_class = classifier.predict(features)
+            values[1].extend([severity_value[0], severity_class[0]])
 
     def sequencing(self):
         """Currently, this method sort the victims by the x coordinate followed by the y coordinate
