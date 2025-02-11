@@ -35,6 +35,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import joblib
 import os
+from deap import base, creator, tools, algorithms
 
 N_CLUSTERS = 4
 
@@ -321,9 +322,9 @@ class Rescuer(AbstAgent):
         # Combine features with weights
         # Higher weights for gravity and class to prioritize severity
         # Format: [x, y, gravity * weight, class * weight]
-        SPATIAL_FEATURE_WEIGHT = 1.0
-        GRAVITY_WEIGHT = 1.2
-        CLASS_WEIGHT = 1.2
+        SPATIAL_FEATURE_WEIGHT = 1.5
+        GRAVITY_WEIGHT = 1.5
+        CLASS_WEIGHT = 0.2
 
         clustering_features = np.hstack(
             [
@@ -428,13 +429,156 @@ class Rescuer(AbstAgent):
 
         new_sequences = []
 
-        for (
-            seq
-        ) in self.sequences:  # a list of sequences, being each sequence a dictionary
-            seq = dict(sorted(seq.items(), key=lambda item: item[1]))
-            new_sequences.append(seq)
-            # print(f"{self.NAME} sequence of visit:\n{seq}\n")
+        # Access the dictionary inside the list
+        # order by id
+        sequence_dict = self.sequences[0]
+        sequence_dict = dict(sorted(sequence_dict.items(), key=lambda item: item[0]))
 
+        # Create a mapping from victim IDs to indices
+        victim_id_to_index = {
+            int(vic_id): idx for idx, vic_id in enumerate(sequence_dict.keys())
+        }
+
+        # Convert the keys of sequence_dict to a list of indices
+        victim_indices = list(victim_id_to_index.values())
+
+        # Create positions and danger levels arrays
+        positions = np.array([values[0] for _, values in sequence_dict.items()])
+
+        danger_levels = np.array(
+            [values[1][7] for _, values in sequence_dict.items()]
+        )  # Assuming severity value is at index 7
+
+        print("--------------------------------")
+        print("Victim IDs:")
+        print(victim_indices)
+        print("--------------------------------")
+        print("Positions:")
+        print(positions)
+        print("--------------------------------")
+        print("Danger Levels:")
+        print(danger_levels)
+        print("--------------------------------")
+
+        # Função de avaliação (fitness)
+        # Considera que resgata todas as vitimas de uma vez
+        # se for ter que alterar por perigo de vitima, altera-se a distancia de cada nó.
+        # a distancia será a diferença euclidiana da origem até a vitima.(no final a distancia seria a mesma)
+        def evaluate(individuo):
+            total_distance = 0
+            urgency_score = 0
+            for i in range(len(individuo) - 1):
+                v1, v2 = individuo[i], individuo[i + 1]
+                total_distance += np.linalg.norm(
+                    positions[v1] - positions[v2]
+                )  # Distância euclidiana
+                urgency_score += danger_levels[v1] / (
+                    i + 1
+                )  # Penalizar atrasos no atendimento
+
+            return total_distance, urgency_score
+
+        # Configuração do DEAP
+        creator.create("FitnessMin", base.Fitness, weights=(-0.7, 0.3))  # Minimização
+        creator.create("EstrIndividuos", list, fitness=creator.FitnessMin)
+
+        # Armazena as premissas do problema
+        toolbox = base.Toolbox()
+
+        # Register a function to generate a random permutation of victim IDs
+        toolbox.register("Genes", np.random.permutation, victim_indices)
+
+        # Register a function to create an individual using the permutation of victim IDs
+        toolbox.register(
+            "individuos", tools.initIterate, creator.EstrIndividuos, toolbox.Genes
+        )
+        # Register a function to create a population of individuals
+        toolbox.register("populacao", tools.initRepeat, list, toolbox.individuos)
+        # povo = toolbox.populacao(n = 50)
+
+        # Operadores genéticos
+        toolbox.register("mate", tools.cxPartialyMatched)  # Cruzamento para permutações
+        toolbox.register(
+            "mutate", tools.mutShuffleIndexes, indpb=0.1
+        )  # Mutação por troca -> 10%
+        toolbox.register(
+            "select", tools.selTournament, tournsize=2
+        )  # Torneio para seleção
+        toolbox.register("evaluate", evaluate)
+
+        # Algoritmo Genético com DEAP
+        def genetic_algorithm(
+            n_generations=100, population_size=50, cxpb=0.7, mutpb=0.2
+        ):
+            population = toolbox.populacao(n=population_size)
+            hall_of_fame = tools.HallOfFame(1)  # Armazena o melhor indivíduo
+
+            stats = tools.Statistics(lambda ind: ind.fitness.values)
+            stats.register("min", np.min)
+            stats.register("avg", np.mean)
+
+            population, logbook = algorithms.eaSimple(
+                population,
+                toolbox,
+                cxpb=cxpb,
+                mutpb=mutpb,
+                ngen=n_generations,
+                stats=stats,
+                halloffame=hall_of_fame,
+                verbose=True,
+            )
+
+            return hall_of_fame[0], hall_of_fame[0].fitness.values[0]
+
+        # Executar o algoritmo genético
+        best_route, best_score = genetic_algorithm()
+
+        # Mostrar resultados
+        print("\nMelhor ordem de visitação:", best_route)
+        # Melhor ordem de visitação: [np.int64(0), np.int64(2), np.int64(3), np.int64(1), np.int64(4), np.int64(7), np.int64(5), np.int64(8), np.int64(9), np.int64(6)]
+        print("Custo total (fitness):", best_score)
+
+        # positions = np.array(positions)
+        # best_route_positions = positions[best_route]
+
+        # plt.figure(figsize=(10, 6))
+        # plt.scatter(positions[:, 0], positions[:, 1], c="red", label="Vítimas")
+        # plt.plot(
+        #     np.append(best_route_positions[:, 0], best_route_positions[0, 0]),
+        #     np.append(best_route_positions[:, 1], best_route_positions[0, 1]),
+        #     c="blue",
+        #     label="Melhor Rota",
+        # )
+        # for i, (x, y) in enumerate(positions):
+        #     plt.text(x, y, f"{i}", fontsize=12, ha="center", va="center")
+        # plt.xlabel("X")
+        # plt.ylabel("Y")
+        # plt.legend()
+        # plt.title("Melhor Rota para Resgate")
+        # plt.savefig("melhor_rota.png")
+
+        # for (
+        #     seq
+        # ) in self.sequences:  # a list of sequences, being each sequence a dictionary
+        #     seq = dict(sorted(seq.items(), key=lambda item: item[1]))
+        #     new_sequences.append(seq)
+        #     # print(f"{self.NAME} sequence of visit:\n{seq}\n")
+
+        # Assuming victim_id_to_index is already defined
+        index_to_victim_id = {
+            index: vic_id for vic_id, index in victim_id_to_index.items()
+        }
+
+        # Convert best_route indices back to original victim IDs
+        best_route_victim_ids = [index_to_victim_id[index] for index in best_route]
+
+        # Reorder self.sequences based on best_route_victim_ids
+        new_sequences = []
+        for seq in self.sequences:
+            ordered_seq = {vic_id: seq[vic_id] for vic_id in best_route_victim_ids}
+            new_sequences.append(ordered_seq)
+
+        # Update self.sequences with the new order
         self.sequences = new_sequences
 
     def planner(self):
