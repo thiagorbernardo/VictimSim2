@@ -36,6 +36,7 @@ import seaborn as sns
 import joblib
 import os
 from deap import base, creator, tools, algorithms
+from scipy.spatial.distance import euclidean
 
 N_CLUSTERS = 8
 
@@ -593,6 +594,27 @@ class Rescuer(AbstAgent):
 
         self.a_star_search((self.plan_x, self.plan_y), start, start)
 
+    def nearest_neighbor_sort(self, points):
+        """Sort the points using the nearest neighbor algorithm
+        Receives a list of [i, (x, y)]
+        """
+        sorted_points = [points[0]]
+        remaining_points = points[1:]  # Remaining points to visit
+
+        while remaining_points:
+            # Get the last point in the sorted list
+            last_point = sorted_points[-1]
+            last_point_id, last_point_coords = last_point[0], last_point[1]
+
+            # Find the nearest point in the remaining points
+            nearest_point = min(
+                remaining_points, key=lambda x: euclidean(last_point_coords, x[1])
+            )
+            sorted_points.append(nearest_point)
+            remaining_points.remove(nearest_point)
+
+        return sorted_points
+
     def sync_explorers(self, explorer_map, victims):
         """This method should be invoked only to the master agent
 
@@ -629,8 +651,29 @@ class Rescuer(AbstAgent):
             rescuers[0] = self  # the master rescuer is the index 0 agent
 
             # Assign the cluster the master agent is in charge of
-            # TODO: @THIAGO OLHAR ESSA PARTE
-            self.clusters = [clusters_of_vic[0], clusters_of_vic[1]]  # the first one
+
+            # now with all clusters i want to create a array of clusters sorted by mean x, y
+            # this way i can assign the clusters both clusters are close to each other
+
+            # first i need to calculate the mean x, y of each cluster
+
+            clusters_of_vic_mean = []
+            for i, cluster in enumerate(clusters_of_vic):
+                mean_x = np.mean([victim[0][0] for victim in cluster.values()])
+                mean_y = np.mean([victim[0][1] for victim in cluster.values()])
+                clusters_of_vic_mean.append([i, (mean_x, mean_y)])
+
+            # now i need to sort the clusters by mean x, y
+            clusters_of_vic_mean = self.nearest_neighbor_sort(clusters_of_vic_mean)
+
+            # now i can assign the clusters to the rescuers
+
+            print(clusters_of_vic_mean)
+
+            self.clusters = [
+                clusters_of_vic[clusters_of_vic_mean.pop(0)[0]],
+                clusters_of_vic[clusters_of_vic_mean.pop(0)[0]],
+            ]  # the first one
 
             # Instantiate the other rescuers and assign the clusters to them
             for i in range(1, 4):
@@ -642,7 +685,10 @@ class Rescuer(AbstAgent):
                     self.get_env(),
                     config_file,
                     4,
-                    [clusters_of_vic[i * 2], clusters_of_vic[(i * 2) + 1]],
+                    [
+                        clusters_of_vic[clusters_of_vic_mean.pop(0)[0]],
+                        clusters_of_vic[clusters_of_vic_mean.pop(0)[0]],
+                    ],
                     i + 1,
                 )
                 rescuers[i].map = self.map  # each rescuer have the map
