@@ -37,7 +37,7 @@ import joblib
 import os
 from deap import base, creator, tools, algorithms
 
-N_CLUSTERS = 4
+N_CLUSTERS = 8
 
 
 class No:
@@ -96,37 +96,35 @@ class Rescuer(AbstAgent):
         return ((row - dest[0]) ** 2 + (col - dest[1]) ** 2) ** 0.5
 
     def track(self, no_details, dest):
-        # print("The Path is ")
-        row = dest[0]
-        col = dest[1]
+        row, col = dest
         self.plan_x = row
         self.plan_y = col
 
-        dx = 0
-        dy = 0
-
         plano = []
-        plano.append((dx, dy, True))
-        # Trace the path from destination to source using parent cells
+
+        # Caminha do destino até a origem
         while not (
             no_details[row][col].parent_i == row
             and no_details[row][col].parent_j == col
         ):
-            # self.plan.append((row, col,False))
             temp_row = no_details[row][col].parent_i
             temp_col = no_details[row][col].parent_j
 
-            dx = row - temp_row
-            dy = col - temp_col
+            dx = row - temp_row  # Correção para funcionar com negativos e positivos
+            dy = col - temp_col  # Correção para funcionar com negativos e positivos
 
-            row = temp_row
-            col = temp_col
-            # Add the source cell to the path
-            plano.append((dx, dy, False))
-        plano.reverse()
+            row, col = temp_row, temp_col
+            plano.append((dx, dy, False))  # Adiciona passos normais
+
+        # Ajustamos o último movimento para ser o primeiro real
+        if plano:
+            last_dx, last_dy, _ = plano[0]
+            plano[0] = (last_dx, last_dy, True)  # Marca o último passo como True
+
+        plano.reverse()  # Reverte para ficar na ordem correta
         self.plan.extend(plano)
 
-    def a_star_search(self, src, dest):
+    def a_star_search(self, src, dest, start):
         # Check if the source and destination are valid
 
         # Check if we are already at the destination
@@ -161,7 +159,6 @@ class Rescuer(AbstAgent):
         found_dest = False
 
         # Main loop of A* search algorithm
-        # TODO: VERIFICAR A BATERIA PARA VER SE PODE
         while len(open_list) > 0:
             # Remove o elemento com o menor f
             p = heapq.heappop(open_list)
@@ -172,7 +169,7 @@ class Rescuer(AbstAgent):
             closed_list[i][j] = True
 
             # Pega direção disponivel
-            actions_res = self.map.get((self.plan_x, self.plan_y))[2]
+            actions_res = self.map.get((i, j))[2]
 
             for k, ar in enumerate(actions_res):
                 # Se caminho não for livre, apenas pulamos.
@@ -188,7 +185,7 @@ class Rescuer(AbstAgent):
 
                 # Verifica se o sucessor é valido.
                 difficulty = self.map.get((new_i, new_j))
-                if difficulty == None:
+                if difficulty == None or ar != VS.CLEAR:
                     # print("posição mapa NUla")
                     continue
 
@@ -202,11 +199,11 @@ class Rescuer(AbstAgent):
                     no_details[new_i][new_j].parent_i = i
                     no_details[new_i][new_j].parent_j = j
                     # print("The destination no is found")
-                    self.plan_rtime -= g_new
-                    self.plan_walk_time += g_new
-                    if self.plan_walk_time > self.plan_rtime * 2 and dest != (0, 0):
-                        self.plan_rtime += g_new
-                        self.plan_walk_time -= g_new
+                    self.plan_rtime -= g_new + self.COST_FIRST_AID
+                    self.plan_walk_time += g_new + self.COST_FIRST_AID
+                    if self.plan_walk_time > self.plan_rtime * 2 and dest != start:
+                        self.plan_rtime += g_new + self.COST_FIRST_AID
+                        self.plan_walk_time -= g_new + self.COST_FIRST_AID
                         return
                     self.track(no_details, (new_i, new_j))
                     found_dest = True
@@ -329,9 +326,9 @@ class Rescuer(AbstAgent):
         # Combine features with weights
         # Higher weights for gravity and class to prioritize severity
         # Format: [x, y, gravity * weight, class * weight]
-        SPATIAL_FEATURE_WEIGHT = 1
-        GRAVITY_WEIGHT = 1.5
-        CLASS_WEIGHT = 2
+        SPATIAL_FEATURE_WEIGHT = 1.4
+        GRAVITY_WEIGHT = 1
+        CLASS_WEIGHT = 1
 
         clustering_features = np.hstack(
             [
@@ -428,8 +425,10 @@ class Rescuer(AbstAgent):
 
         # Access the dictionary inside the list
         # order by id
-        sequence_dict = self.sequences[0]
-        sequence_dict = dict(sorted(sequence_dict.items(), key=lambda item: item[0]))
+        sequence_dict = {}
+        for i, seq in enumerate(self.sequences):
+            seq = dict(sorted(seq.items(), key=lambda item: item[0]))
+            sequence_dict.update(seq)
 
         # Create a mapping from victim IDs to indices
         victim_id_to_index = {
@@ -471,10 +470,10 @@ class Rescuer(AbstAgent):
                     i + 1
                 )  # Penalizar atrasos no atendimento
 
-            return (total_distance,)
+            return (total_distance, urgency_score)
 
         # Configuração do DEAP
-        creator.create("FitnessMin", base.Fitness, weights=(-1.0,))  # Minimização
+        creator.create("FitnessMin", base.Fitness, weights=(-0.5, 0.5))  # Minimização
         creator.create("EstrIndividuos", list, fitness=creator.FitnessMin)
 
         # Armazena as premissas do problema
@@ -560,11 +559,14 @@ class Rescuer(AbstAgent):
         # Convert best_route indices back to original victim IDs
         best_route_victim_ids = [index_to_victim_id[index] for index in best_route]
 
-        # Reorder self.sequences based on best_route_victim_ids
-        new_sequences = []
-        for seq in self.sequences:
-            ordered_seq = {vic_id: seq[vic_id] for vic_id in best_route_victim_ids}
-            new_sequences.append(ordered_seq)
+        ordered_seq = {
+            vic_id: sequence_dict[vic_id]
+            for vic_id in best_route_victim_ids
+            if vic_id in sequence_dict
+        }
+
+        # Append the ordered sequence to new_sequences
+        new_sequences.append(ordered_seq)
 
         # Update self.sequences with the new order
         self.sequences = new_sequences
@@ -583,18 +585,13 @@ class Rescuer(AbstAgent):
         # self.__depth_search(actions_res)
         vic = []
         sequence = self.sequences[0]
-        start = (0, 0)
+        start = (self.plan_x, self.plan_y)
 
         for vic_id in sequence:
             goal = sequence[vic_id][0]
-            self.a_star_search((self.plan_x, self.plan_y), goal)
+            self.a_star_search((self.plan_x, self.plan_y), goal, start)
 
-        self.a_star_search((self.plan_x, self.plan_y), (0, 0))
-        print(f"id {self.id} self.walk_time {self.plan_walk_time}")
-        print(f"id {self.id} self.rtime {self.plan_rtime}")
-
-        if self.plan == []:
-            return
+        self.a_star_search((self.plan_x, self.plan_y), start, start)
 
     def sync_explorers(self, explorer_map, victims):
         """This method should be invoked only to the master agent
@@ -633,7 +630,7 @@ class Rescuer(AbstAgent):
 
             # Assign the cluster the master agent is in charge of
             # TODO: @THIAGO OLHAR ESSA PARTE
-            self.clusters = [clusters_of_vic[0]]  # the first one
+            self.clusters = [clusters_of_vic[0], clusters_of_vic[1]]  # the first one
 
             # Instantiate the other rescuers and assign the clusters to them
             for i in range(1, 4):
@@ -642,7 +639,11 @@ class Rescuer(AbstAgent):
                 config_file = os.path.join(self.config_folder, filename)
                 # each rescuer receives one cluster of victims
                 rescuers[i] = Rescuer(
-                    self.get_env(), config_file, 4, [clusters_of_vic[i]], i + 1
+                    self.get_env(),
+                    config_file,
+                    4,
+                    [clusters_of_vic[i * 2], clusters_of_vic[(i * 2) + 1]],
+                    i + 1,
                 )
                 rescuers[i].map = self.map  # each rescuer have the map
 
@@ -683,8 +684,9 @@ class Rescuer(AbstAgent):
             return False
 
         # Takes the first action of the plan (walk action) and removes it from the plan
+        # print(f"{self.NAME} plan {self.plan}")
         dx, dy, there_is_vict = self.plan.pop(0)
-        # print(f"{self.NAME} pop dx: {dx} dy: {dy} ")
+        # print(f"{self.NAME} pop dx: {dx} dy: {dy} there_is_vict: {there_is_vict}")
 
         # Walk - just one step per deliberation
         walked = self.walk(dx, dy)

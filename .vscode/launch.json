@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: Current File",
+            "name": "Python Debugger: Main",
             "type": "debugpy",
             "request": "launch",
             "program": "ex03_mas_rescuers/mas/main.py",
