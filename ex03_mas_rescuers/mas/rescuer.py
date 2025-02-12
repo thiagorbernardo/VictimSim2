@@ -51,7 +51,7 @@ class No:
 
 ## Classe que define o Agente Rescuer com um plano fixo
 class Rescuer(AbstAgent):
-    def __init__(self, env, config_file, nb_of_explorers=1, clusters=[]):
+    def __init__(self, env, config_file, nb_of_explorers=1, clusters=[], id=1):
         """
         @param env: a reference to an instance of the environment class
         @param config_file: the absolute path to the agent's config file
@@ -77,6 +77,7 @@ class Rescuer(AbstAgent):
         self.y = 0  # the current y position of the rescuer when executing the plan
         self.clusters = clusters  # the clusters of victims this agent should take care of - see the method cluster_victims
         self.sequences = clusters  # the sequence of visit of victims for each cluster
+        self.id = id
 
         # Starts in IDLE state.
         # It changes to ACTIVE when the map arrives
@@ -160,6 +161,7 @@ class Rescuer(AbstAgent):
         found_dest = False
 
         # Main loop of A* search algorithm
+        # TODO: VERIFICAR A BATERIA PARA VER SE PODE
         while len(open_list) > 0:
             # Remove o elemento com o menor f
             p = heapq.heappop(open_list)
@@ -192,14 +194,19 @@ class Rescuer(AbstAgent):
 
                 if self.is_destination(new_i, new_j, dest):
                     # Set the parent of the destination no
+                    if dir[0] == 0 or dir[1] == 0:
+                        g_new = no_details[i][j].gn + self.COST_LINE * difficulty[0]
+                    else:
+                        g_new = no_details[i][j].gn + self.COST_DIAG * difficulty[0]
+
                     no_details[new_i][new_j].parent_i = i
                     no_details[new_i][new_j].parent_j = j
                     # print("The destination no is found")
-                    self.plan_rtime -= no_details[new_i][new_j].gn
-                    self.plan_walk_time += no_details[new_i][new_j].gn
-                    if self.plan_walk_time < self.plan_rtime:
-                        self.plan_rtime = +no_details[new_i][new_j].gn
-                        self.plan_walk_time -= no_details[new_i][new_j].gn
+                    self.plan_rtime -= g_new
+                    self.plan_walk_time += g_new
+                    if self.plan_walk_time > self.plan_rtime * 2 and dest != (0, 0):
+                        self.plan_rtime += g_new
+                        self.plan_walk_time -= g_new
                         return
                     self.track(no_details, (new_i, new_j))
                     found_dest = True
@@ -322,9 +329,9 @@ class Rescuer(AbstAgent):
         # Combine features with weights
         # Higher weights for gravity and class to prioritize severity
         # Format: [x, y, gravity * weight, class * weight]
-        SPATIAL_FEATURE_WEIGHT = 1.5
+        SPATIAL_FEATURE_WEIGHT = 1
         GRAVITY_WEIGHT = 1.5
-        CLASS_WEIGHT = 0.2
+        CLASS_WEIGHT = 2
 
         clustering_features = np.hstack(
             [
@@ -370,32 +377,22 @@ class Rescuer(AbstAgent):
             print("Class distribution:")
             print(cluster_data["classe"].value_counts().sort_index())
 
-        cluster_1 = {}
-        cluster_2 = {}
-        cluster_3 = {}
-        cluster_4 = {}
+        clusters = [{} for _ in range(N_CLUSTERS)]
 
         for _, row in df.iterrows():
             vic_id = row["Id"]
 
-            # Determine cluster based on cluster number
-            if row["cluster"] == 1:
-                cluster_1[vic_id] = self.victims[vic_id]
-            elif row["cluster"] == 2:
-                cluster_2[vic_id] = self.victims[vic_id]
-            elif row["cluster"] == 3:
-                cluster_3[vic_id] = self.victims[vic_id]
-            else:
-                cluster_4[vic_id] = self.victims[vic_id]
-
-        print("Cluster 1 Length: ", len(cluster_1))
-        print("Cluster 2 Length: ", len(cluster_2))
-        print("Cluster 3 Length: ", len(cluster_3))
-        print("Cluster 4 Length: ", len(cluster_4))
+            cluster = self.victims[vic_id]
+            # print(f"Cluster {row['cluster']}")
+            # print(f"Cluster {int(row['cluster'])}")
+            clusters[int(row["cluster"]) - 1][vic_id] = cluster
 
         self.plot_clusters(df)
 
-        return [cluster_1, cluster_2, cluster_3, cluster_4]
+        # for i, cluster in enumerate(clusters):
+        #     print(f"Cluster {i+1} length: {len(cluster)}")
+
+        return clusters
 
     def predict_severity_and_class(self):
         """@TODO to be replaced by a classifier and a regressor to calculate the class of severity and the severity values.
@@ -445,20 +442,18 @@ class Rescuer(AbstAgent):
         # Create positions and danger levels arrays
         positions = np.array([values[0] for _, values in sequence_dict.items()])
 
-        danger_levels = np.array(
-            [values[1][7] for _, values in sequence_dict.items()]
-        )  # Assuming severity value is at index 7
+        danger_levels = np.array([values[1][7] for _, values in sequence_dict.items()])
 
-        print("--------------------------------")
-        print("Victim IDs:")
-        print(victim_indices)
-        print("--------------------------------")
-        print("Positions:")
-        print(positions)
-        print("--------------------------------")
-        print("Danger Levels:")
-        print(danger_levels)
-        print("--------------------------------")
+        # print("--------------------------------")
+        # print("Victim IDs:")
+        # print(victim_indices)
+        # print("--------------------------------")
+        # print("Positions:")
+        # print(positions)
+        # print("--------------------------------")
+        # print("Danger Levels:")
+        # print(danger_levels)
+        # print("--------------------------------")
 
         # Função de avaliação (fitness)
         # Considera que resgata todas as vitimas de uma vez
@@ -476,10 +471,10 @@ class Rescuer(AbstAgent):
                     i + 1
                 )  # Penalizar atrasos no atendimento
 
-            return total_distance, urgency_score
+            return (total_distance,)
 
         # Configuração do DEAP
-        creator.create("FitnessMin", base.Fitness, weights=(-0.7, 0.3))  # Minimização
+        creator.create("FitnessMin", base.Fitness, weights=(-1.0,))  # Minimização
         creator.create("EstrIndividuos", list, fitness=creator.FitnessMin)
 
         # Armazena as premissas do problema
@@ -494,7 +489,6 @@ class Rescuer(AbstAgent):
         )
         # Register a function to create a population of individuals
         toolbox.register("populacao", tools.initRepeat, list, toolbox.individuos)
-        # povo = toolbox.populacao(n = 50)
 
         # Operadores genéticos
         toolbox.register("mate", tools.cxPartialyMatched)  # Cruzamento para permutações
@@ -531,38 +525,32 @@ class Rescuer(AbstAgent):
             return hall_of_fame[0], hall_of_fame[0].fitness.values[0]
 
         # Executar o algoritmo genético
-        best_route, best_score = genetic_algorithm()
+        best_route, best_score = genetic_algorithm(
+            # n_generations=500, population_size=200
+        )
 
         # Mostrar resultados
         print("\nMelhor ordem de visitação:", best_route)
-        # Melhor ordem de visitação: [np.int64(0), np.int64(2), np.int64(3), np.int64(1), np.int64(4), np.int64(7), np.int64(5), np.int64(8), np.int64(9), np.int64(6)]
         print("Custo total (fitness):", best_score)
 
-        # positions = np.array(positions)
-        # best_route_positions = positions[best_route]
+        positions = np.array(positions)
+        best_route_positions = positions[best_route]
 
-        # plt.figure(figsize=(10, 6))
-        # plt.scatter(positions[:, 0], positions[:, 1], c="red", label="Vítimas")
-        # plt.plot(
-        #     np.append(best_route_positions[:, 0], best_route_positions[0, 0]),
-        #     np.append(best_route_positions[:, 1], best_route_positions[0, 1]),
-        #     c="blue",
-        #     label="Melhor Rota",
-        # )
-        # for i, (x, y) in enumerate(positions):
-        #     plt.text(x, y, f"{i}", fontsize=12, ha="center", va="center")
-        # plt.xlabel("X")
-        # plt.ylabel("Y")
-        # plt.legend()
-        # plt.title("Melhor Rota para Resgate")
-        # plt.savefig("melhor_rota.png")
-
-        # for (
-        #     seq
-        # ) in self.sequences:  # a list of sequences, being each sequence a dictionary
-        #     seq = dict(sorted(seq.items(), key=lambda item: item[1]))
-        #     new_sequences.append(seq)
-        #     # print(f"{self.NAME} sequence of visit:\n{seq}\n")
+        plt.figure(figsize=(10, 6))
+        plt.scatter(positions[:, 0], positions[:, 1], c="red", label="Vítimas")
+        plt.plot(
+            np.append(best_route_positions[:, 0], best_route_positions[0, 0]),
+            np.append(best_route_positions[:, 1], best_route_positions[0, 1]),
+            c="blue",
+            label="Melhor Rota",
+        )
+        for i, (x, y) in enumerate(positions):
+            plt.text(x, y, f"{i}", fontsize=12, ha="center", va="center")
+        plt.xlabel("X")
+        plt.ylabel("Y")
+        plt.legend()
+        plt.title(f"Melhor Rota para Resgate {self.id}")
+        plt.savefig(f"melhor_rota_rescuer_{self.id}.png")
 
         # Assuming victim_id_to_index is already defined
         index_to_victim_id = {
@@ -601,23 +589,12 @@ class Rescuer(AbstAgent):
             goal = sequence[vic_id][0]
             self.a_star_search((self.plan_x, self.plan_y), goal)
 
-        # while (vic):
-        #    coord,vs=vic.pop()
-        #    self.a_star_search((self.plan_x,self.plan_y),coord)
+        self.a_star_search((self.plan_x, self.plan_y), (0, 0))
+        print(f"id {self.id} self.walk_time {self.plan_walk_time}")
+        print(f"id {self.id} self.rtime {self.plan_rtime}")
 
-        # Reverse the path to get the path from source to destination
-        # self.plan.reverse()
-        # push actions into the plan to come back to the base
         if self.plan == []:
             return
-
-        come_back_plan = []
-
-        for a in reversed(self.plan):
-            # triple: dx, dy, no victim - when coming back do not rescue any victim
-            come_back_plan.append((a[0] * -1, a[1] * -1, False))
-
-        self.plan = self.plan + come_back_plan
 
     def sync_explorers(self, explorer_map, victims):
         """This method should be invoked only to the master agent
@@ -665,7 +642,7 @@ class Rescuer(AbstAgent):
                 config_file = os.path.join(self.config_folder, filename)
                 # each rescuer receives one cluster of victims
                 rescuers[i] = Rescuer(
-                    self.get_env(), config_file, 4, [clusters_of_vic[i]]
+                    self.get_env(), config_file, 4, [clusters_of_vic[i]], i + 1
                 )
                 rescuers[i].map = self.map  # each rescuer have the map
 
@@ -687,6 +664,7 @@ class Rescuer(AbstAgent):
                             sequence, (i + 1) + j * 10
                         )  # demais sequencias do 1o. cluster: seq11, seq12, seq13, ...
 
+                print(f"id {rescuer.id} planner")
                 rescuer.planner()  # make the plan for the trajectory
                 rescuer.set_state(
                     VS.ACTIVE
