@@ -327,7 +327,7 @@ class Rescuer(AbstAgent):
         # Combine features with weights
         # Higher weights for gravity and class to prioritize severity
         # Format: [x, y, gravity * weight, class * weight]
-        SPATIAL_FEATURE_WEIGHT = 1.4
+        SPATIAL_FEATURE_WEIGHT = 1.2
         GRAVITY_WEIGHT = 1
         CLASS_WEIGHT = 1
 
@@ -464,48 +464,42 @@ class Rescuer(AbstAgent):
             urgency_score = 0
             for i in range(len(individuo) - 1):
                 v1, v2 = individuo[i], individuo[i + 1]
-                total_distance += np.linalg.norm(
-                    positions[v1] - positions[v2]
-                )  # Distância euclidiana
-                urgency_score += danger_levels[v1] / (
-                    i + 1
-                )  # Penalizar atrasos no atendimento
+                # Euclidean distance between two victims
+                total_distance += np.linalg.norm(positions[v1] - positions[v2])
+                # Penalize delays for high-danger victims
+                urgency_score += danger_levels[v1] * (
+                    len(individuo) - i
+                )  # Higher weight for earlier rescues
 
+            # Combine distance and urgency into a single fitness value
+            # Adjust the weights as needed to balance distance and urgency
             return (total_distance, urgency_score)
 
-        # Configuração do DEAP
-        creator.create("FitnessMin", base.Fitness, weights=(-0.5, 0.5))  # Minimização
+        # DEAP Configuration
+        creator.create(
+            "FitnessMin", base.Fitness, weights=(-1.0, 1.0)
+        )  # Minimize both distance and urgency
         creator.create("EstrIndividuos", list, fitness=creator.FitnessMin)
 
-        # Armazena as premissas do problema
         toolbox = base.Toolbox()
-
-        # Register a function to generate a random permutation of victim IDs
         toolbox.register("Genes", np.random.permutation, victim_indices)
-
-        # Register a function to create an individual using the permutation of victim IDs
         toolbox.register(
             "individuos", tools.initIterate, creator.EstrIndividuos, toolbox.Genes
         )
-        # Register a function to create a population of individuals
         toolbox.register("populacao", tools.initRepeat, list, toolbox.individuos)
 
-        # Operadores genéticos
-        toolbox.register("mate", tools.cxPartialyMatched)  # Cruzamento para permutações
-        toolbox.register(
-            "mutate", tools.mutShuffleIndexes, indpb=0.1
-        )  # Mutação por troca -> 10%
-        toolbox.register(
-            "select", tools.selTournament, tournsize=2
-        )  # Torneio para seleção
+        # Genetic Operators
+        toolbox.register("mate", tools.cxPartialyMatched)
+        toolbox.register("mutate", tools.mutShuffleIndexes, indpb=0.1)
+        toolbox.register("select", tools.selTournament, tournsize=5)
         toolbox.register("evaluate", evaluate)
 
-        # Algoritmo Genético com DEAP
+        # Genetic Algorithm
         def genetic_algorithm(
             n_generations=100, population_size=50, cxpb=0.7, mutpb=0.2
         ):
             population = toolbox.populacao(n=population_size)
-            hall_of_fame = tools.HallOfFame(1)  # Armazena o melhor indivíduo
+            hall_of_fame = tools.HallOfFame(1)
 
             stats = tools.Statistics(lambda ind: ind.fitness.values)
             stats.register("min", np.min)
@@ -522,11 +516,11 @@ class Rescuer(AbstAgent):
                 verbose=True,
             )
 
-            return hall_of_fame[0], hall_of_fame[0].fitness.values[0]
+            return hall_of_fame[0], hall_of_fame[0].fitness.values
 
-        # Executar o algoritmo genético
+        # Run the Genetic Algorithm
         best_route, best_score = genetic_algorithm(
-            # n_generations=500, population_size=200
+            n_generations=300, population_size=100, cxpb=0.5, mutpb=0.1
         )
 
         # Mostrar resultados
