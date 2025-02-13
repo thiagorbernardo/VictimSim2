@@ -36,7 +36,7 @@ import seaborn as sns
 import joblib
 import os
 from deap import base, creator, tools, algorithms
-from scipy.spatial.distance import euclidean
+from scipy.spatial.distance import euclidean, sqeuclidean
 
 N_CLUSTERS = 8
 
@@ -202,7 +202,7 @@ class Rescuer(AbstAgent):
                     # print("The destination no is found")
                     self.plan_rtime -= g_new + self.COST_FIRST_AID
                     self.plan_walk_time += g_new + self.COST_FIRST_AID
-                    if self.plan_walk_time > self.plan_rtime * 2 and dest != start:
+                    if self.plan_walk_time > self.plan_rtime * 4 and dest != start:
                         self.plan_rtime += g_new + self.COST_FIRST_AID
                         self.plan_walk_time -= g_new + self.COST_FIRST_AID
                         return
@@ -413,7 +413,7 @@ class Rescuer(AbstAgent):
             severity_class = classifier.predict(features)
             values[1].extend([severity_value[0], severity_class[0]])
 
-    def sequencing(self):
+    def sequencing(self, cluster_index):
         """Currently, this method sort the victims by the x coordinate followed by the y coordinate
         @TODO It must be replaced by a Genetic Algorithm that finds the possibly best visiting order
         """
@@ -422,52 +422,42 @@ class Rescuer(AbstAgent):
             sequence[0], sequence[1], ...
             A sequence is a dictionary with the following structure: [vic_id]: ((x,y), [<vs>]"""
 
-        new_sequences = []
+        # Combine all clusters into a single sequence
+        combined_clusters = self.sequences[cluster_index]
+        # for i, seq in enumerate(self.sequences):
+        #     seq = dict(sorted(seq.items(), key=lambda item: item[0]))
+        #     combined_clusters.update(seq)
 
-        # Access the dictionary inside the list
-        # order by id
-        sequence_dict = {}
-        for i, seq in enumerate(self.sequences):
-            seq = dict(sorted(seq.items(), key=lambda item: item[0]))
-            sequence_dict.update(seq)
-
-        # Create a mapping from victim IDs to indices
-        victim_id_to_index = {
-            int(vic_id): idx for idx, vic_id in enumerate(sequence_dict.keys())
+        sequence_dict_by_index = {
+            index: combined_clusters[vic_id]
+            for index, vic_id in enumerate(combined_clusters)
         }
 
-        # Convert the keys of sequence_dict to a list of indices
-        victim_indices = list(victim_id_to_index.values())
-
-        # Create positions and danger levels arrays
-        positions = np.array([values[0] for _, values in sequence_dict.items()])
-
-        danger_levels = np.array([values[1][7] for _, values in sequence_dict.items()])
-
-        # print("--------------------------------")
-        # print("Victim IDs:")
-        # print(victim_indices)
-        # print("--------------------------------")
-        # print("Positions:")
-        # print(positions)
-        # print("--------------------------------")
-        # print("Danger Levels:")
-        # print(danger_levels)
-        # print("--------------------------------")
-
         # Função de avaliação (fitness)
-        # Considera que resgata todas as vitimas de uma vez
-        # se for ter que alterar por perigo de vitima, altera-se a distancia de cada nó.
-        # a distancia será a diferença euclidiana da origem até a vitima.(no final a distancia seria a mesma)
         def evaluate(individuo):
             total_distance = 0
             urgency_score = 0
+
+            # if (
+            #     sequence_dict_by_index[individuo[0]][1][7] != 2
+            #     and sequence_dict_by_index[individuo[0]][1][7] != 3
+            # ):
+            #     return (float("inf"), float(0))
+
             for i in range(len(individuo) - 1):
+                # individuo is a permutation of the victim indices
                 v1, v2 = individuo[i], individuo[i + 1]
+
+                # access the sequence_dict by the victim id
+                victim_v1 = sequence_dict_by_index[v1]
+                victim_v2 = sequence_dict_by_index[v2]
+
                 # Euclidean distance between two victims
-                total_distance += np.linalg.norm(positions[v1] - positions[v2])
-                # Penalize delays for high-danger victims
-                urgency_score += danger_levels[v1] * (
+                euclidean_distance = sqeuclidean(victim_v1[0], victim_v2[0])
+                total_distance += euclidean_distance
+
+                # Penalize delays for low-severity victims
+                urgency_score += victim_v1[1][7] * (
                     len(individuo) - i
                 )  # Higher weight for earlier rescues
 
@@ -477,12 +467,13 @@ class Rescuer(AbstAgent):
 
         # DEAP Configuration
         creator.create(
-            "FitnessMin", base.Fitness, weights=(-1.0, 1.0)
+            "FitnessMin", base.Fitness, weights=(-1.0, 0.5)
         )  # Minimize both distance and urgency
         creator.create("EstrIndividuos", list, fitness=creator.FitnessMin)
 
         toolbox = base.Toolbox()
-        toolbox.register("Genes", np.random.permutation, victim_indices)
+        population_list = list(sequence_dict_by_index.keys())
+        toolbox.register("Genes", np.random.permutation, population_list)
         toolbox.register(
             "individuos", tools.initIterate, creator.EstrIndividuos, toolbox.Genes
         )
@@ -490,13 +481,13 @@ class Rescuer(AbstAgent):
 
         # Genetic Operators
         toolbox.register("mate", tools.cxPartialyMatched)
-        toolbox.register("mutate", tools.mutShuffleIndexes, indpb=0.1)
+        toolbox.register("mutate", tools.mutShuffleIndexes, indpb=0.05)
         toolbox.register("select", tools.selTournament, tournsize=5)
         toolbox.register("evaluate", evaluate)
 
         # Genetic Algorithm
         def genetic_algorithm(
-            n_generations=100, population_size=50, cxpb=0.7, mutpb=0.2
+            n_generations=100, population_size=50, mate_prob=0.7, mutate_prob=0.2
         ):
             population = toolbox.populacao(n=population_size)
             hall_of_fame = tools.HallOfFame(1)
@@ -508,27 +499,35 @@ class Rescuer(AbstAgent):
             population, logbook = algorithms.eaSimple(
                 population,
                 toolbox,
-                cxpb=cxpb,
-                mutpb=mutpb,
+                cxpb=mate_prob,
+                mutpb=mutate_prob,
                 ngen=n_generations,
                 stats=stats,
                 halloffame=hall_of_fame,
-                verbose=True,
+                verbose=False,
             )
 
             return hall_of_fame[0], hall_of_fame[0].fitness.values
 
         # Run the Genetic Algorithm
         best_route, best_score = genetic_algorithm(
-            n_generations=300, population_size=100, cxpb=0.5, mutpb=0.1
+            n_generations=800, population_size=100, mate_prob=0.5, mutate_prob=0.2
         )
 
         # Mostrar resultados
         print("\nMelhor ordem de visitação:", best_route)
         print("Custo total (fitness):", best_score)
 
+        positions = []
+        for i, victim in combined_clusters.items():
+            positions.append(victim[0])
+
+        best_route_positions = [
+            sequence_dict_by_index[vic_index][0] for vic_index in best_route
+        ]
+
         positions = np.array(positions)
-        best_route_positions = positions[best_route]
+        best_route_positions = np.array(best_route_positions)
 
         plt.figure(figsize=(10, 6))
         plt.scatter(positions[:, 0], positions[:, 1], c="red", label="Vítimas")
@@ -543,28 +542,19 @@ class Rescuer(AbstAgent):
         plt.xlabel("X")
         plt.ylabel("Y")
         plt.legend()
-        plt.title(f"Melhor Rota para Resgate {self.id}")
-        plt.savefig(f"melhor_rota_rescuer_{self.id}.png")
+        plt.title(f"Melhor Rota para Resgate {self.id} - Cluster {cluster_index}")
+        plt.savefig(f"melhor_rota_rescuer_{self.id}_cluster_{cluster_index}.png")
 
-        # Assuming victim_id_to_index is already defined
-        index_to_victim_id = {
-            index: vic_id for vic_id, index in victim_id_to_index.items()
-        }
+        # order combined_clusters by best_route
+        # but best_route is a list of index
+        # use the index of sequence_dict_by_index to order the combined_clusters
 
-        # Convert best_route indices back to original victim IDs
-        best_route_victim_ids = [index_to_victim_id[index] for index in best_route]
-
-        ordered_seq = {
-            vic_id: sequence_dict[vic_id]
-            for vic_id in best_route_victim_ids
-            if vic_id in sequence_dict
-        }
-
-        # Append the ordered sequence to new_sequences
-        new_sequences.append(ordered_seq)
+        ordered_seq = {}
+        for i, index in enumerate(best_route):
+            ordered_seq[index] = sequence_dict_by_index[index]
 
         # Update self.sequences with the new order
-        self.sequences = new_sequences
+        self.sequences[cluster_index] = ordered_seq
 
     def planner(self):
         """A method that calculates the path between victims: walk actions in a OFF-LINE MANNER (the agent plans, stores the plan, and
@@ -578,8 +568,10 @@ class Rescuer(AbstAgent):
         )  # always start from the base, so it is already visited
         difficulty, vic_seq, actions_res = self.map.get((0, 0))
         # self.__depth_search(actions_res)
-        vic = []
-        sequence = self.sequences[0]
+        sequence = {}
+        for i, seq in enumerate(self.sequences):
+            sequence.update(seq.items())
+
         start = (self.plan_x, self.plan_y)
 
         for vic_id in sequence:
@@ -587,6 +579,9 @@ class Rescuer(AbstAgent):
             self.a_star_search((self.plan_x, self.plan_y), goal, start)
 
         self.a_star_search((self.plan_x, self.plan_y), start, start)
+        print(
+            f"Planner {self.id} finished with rtime {self.plan_rtime} walk time {self.plan_walk_time}"
+        )
 
     def nearest_neighbor_sort(self, points):
         """Sort the points using the nearest neighbor algorithm
@@ -667,7 +662,8 @@ class Rescuer(AbstAgent):
             self.clusters = [
                 clusters_of_vic[clusters_of_vic_mean.pop(0)[0]],
                 clusters_of_vic[clusters_of_vic_mean.pop(0)[0]],
-            ]  # the first one
+            ]
+            self.sequences = self.clusters
 
             # Instantiate the other rescuers and assign the clusters to them
             for i in range(1, 4):
@@ -687,13 +683,22 @@ class Rescuer(AbstAgent):
                 )
                 rescuers[i].map = self.map  # each rescuer have the map
 
-            # Calculate the sequence of rescue for each agent
-            # In this case, each agent has just one cluster and one sequence
-            self.sequences = self.clusters
-
             # For each rescuer, we calculate the rescue sequence
             for i, rescuer in enumerate(rescuers):
-                rescuer.sequencing()  # the sequencing will reorder the cluster
+                cluster_averages = []
+                for seq in self.sequences:
+                    class_values = [victim[1][7] for victim in seq.values()]
+                    cluster_averages.append(np.mean(class_values))
+
+                highest_avg_cluster_index = np.argmax(cluster_averages)
+                lowest_avg_cluster_index = np.argmin(cluster_averages)
+
+                print(f"cluster_averages: {cluster_averages}")
+                print(f"highest_avg_cluster_index: {highest_avg_cluster_index}")
+                print(f"lowest_avg_cluster_index: {lowest_avg_cluster_index}")
+
+                rescuer.sequencing(highest_avg_cluster_index)
+                rescuer.sequencing(lowest_avg_cluster_index)
 
                 for j, sequence in enumerate(rescuer.sequences):
                     if j == 0:
