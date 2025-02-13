@@ -327,9 +327,9 @@ class Rescuer(AbstAgent):
         # Combine features with weights
         # Higher weights for gravity and class to prioritize severity
         # Format: [x, y, gravity * weight, class * weight]
-        SPATIAL_FEATURE_WEIGHT = 1.2
+        SPATIAL_FEATURE_WEIGHT = 2
         GRAVITY_WEIGHT = 1
-        CLASS_WEIGHT = 1
+        CLASS_WEIGHT = 1.6
 
         clustering_features = np.hstack(
             [

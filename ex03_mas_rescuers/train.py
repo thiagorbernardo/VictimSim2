@@ -5,7 +5,16 @@ from sklearn.model_selection import KFold, train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.neural_network import MLPClassifier, MLPRegressor
-from sklearn.metrics import accuracy_score, mean_squared_error, classification_report
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    mean_squared_error,
+    classification_report,
+    precision_score,
+    recall_score,
+    mean_absolute_error,
+    r2_score,
+)
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -75,12 +84,17 @@ def evaluate_models(classifier, regressor, X_test, y_class_test, y_reg_test):
     # Regressor evaluation
     y_reg_pred = regressor.predict(X_test)
     reg_mse = mean_squared_error(y_reg_test, y_reg_pred)
+    reg_rmse = np.sqrt(reg_mse)
+    reg_mae = mean_absolute_error(y_reg_test, y_reg_pred)
+    reg_r2 = r2_score(y_reg_test, y_reg_pred)
 
     print("\nTest Set Evaluation:")
     print(f"Classifier Accuracy: {class_accuracy:.4f}")
     print("\nClassification Report:")
     print(class_report)
-    print(f"Regressor MSE: {reg_mse:.4f}")
+    print(f"Regressor RMSE: {reg_rmse:.4f}")
+    print(f"Regressor MAE: {reg_mae:.4f}")
+    print(f"Regressor R-squared: {reg_r2:.4f}")
 
 
 def train_and_evaluate_models(dataset):
@@ -128,38 +142,86 @@ def train_and_evaluate_models(dataset):
 
     # CART Classifier
     for config in cart_class_configs:
-        scores = []
+        accuracy_scores = []
+        precision_scores = []
+        recall_scores = []
+        f1_scores = []
+
         for train_idx, val_idx in kf.split(X_train):
             clf = DecisionTreeClassifier(**config, random_state=RANDOM_STATE)
             clf.fit(X_train[train_idx], y_class_train.iloc[train_idx])
-            score = accuracy_score(
-                y_class_train.iloc[val_idx], clf.predict(X_train[val_idx])
-            )
-            scores.append(score)
-        avg_score = np.mean(scores)
-        print(f"CART Config {config}: Accuracy = {avg_score:.4f}")
+            y_pred = clf.predict(X_train[val_idx])
 
-        if avg_score > best_class_score:
-            best_class_score = avg_score
+            # Calculate scores for this fold
+            accuracy_scores.append(accuracy_score(y_class_train.iloc[val_idx], y_pred))
+            precision_scores.append(
+                precision_score(y_class_train.iloc[val_idx], y_pred, average="weighted")
+            )
+            recall_scores.append(
+                recall_score(y_class_train.iloc[val_idx], y_pred, average="weighted")
+            )
+            f1_scores.append(
+                f1_score(y_class_train.iloc[val_idx], y_pred, average="weighted")
+            )
+
+        # Calculate average scores across all folds
+        avg_accuracy = np.mean(accuracy_scores)
+        avg_precision = np.mean(precision_scores)
+        avg_recall = np.mean(recall_scores)
+        avg_f1 = np.mean(f1_scores)
+
+        # Print config precision, recall, f-measure, accuracy
+        print(f"CART Config {config}:")
+        print(f"Accuracy: {avg_accuracy:.4f}")
+        print(f"Precision: {avg_precision:.4f}")
+        print(f"Recall: {avg_recall:.4f}")
+        print(f"F-measure: {avg_f1:.4f}")
+
+        if avg_accuracy > best_class_score:
+            best_class_score = avg_accuracy
             best_class_model = DecisionTreeClassifier(
                 **config, random_state=RANDOM_STATE
             )
 
     # Neural Network Classifier
     for config in nn_class_configs:
-        scores = []
+        accuracy_scores = []
+        precision_scores = []
+        recall_scores = []
+        f1_scores = []
+
         for train_idx, val_idx in kf.split(X_train):
             clf = MLPClassifier(**config, random_state=RANDOM_STATE)
             clf.fit(X_train[train_idx], y_class_train.iloc[train_idx])
-            score = accuracy_score(
-                y_class_train.iloc[val_idx], clf.predict(X_train[val_idx])
-            )
-            scores.append(score)
-        avg_score = np.mean(scores)
-        print(f"NN Config {config}: Accuracy = {avg_score:.4f}")
+            y_pred = clf.predict(X_train[val_idx])
 
-        if avg_score > best_class_score:
-            best_class_score = avg_score
+            # Calculate scores for this fold
+            accuracy_scores.append(accuracy_score(y_class_train.iloc[val_idx], y_pred))
+            precision_scores.append(
+                precision_score(y_class_train.iloc[val_idx], y_pred, average="weighted")
+            )
+            recall_scores.append(
+                recall_score(y_class_train.iloc[val_idx], y_pred, average="weighted")
+            )
+            f1_scores.append(
+                f1_score(y_class_train.iloc[val_idx], y_pred, average="weighted")
+            )
+
+        # Calculate average scores across all folds
+        avg_accuracy = np.mean(accuracy_scores)
+        avg_precision = np.mean(precision_scores)
+        avg_recall = np.mean(recall_scores)
+        avg_f1 = np.mean(f1_scores)
+
+        # Print config precision, recall, f-measure, accuracy
+        print(f"NN Config {config}:")
+        print(f"Accuracy: {avg_accuracy:.4f}")
+        print(f"Precision: {avg_precision:.4f}")
+        print(f"Recall: {avg_recall:.4f}")
+        print(f"F-measure: {avg_f1:.4f}")
+
+        if avg_accuracy > best_class_score:
+            best_class_score = avg_accuracy
             best_class_model = MLPClassifier(**config, random_state=RANDOM_STATE)
 
     # Train and evaluate regressors
@@ -167,36 +229,76 @@ def train_and_evaluate_models(dataset):
 
     # CART Regressor
     for config in cart_reg_configs:
-        scores = []
+        rmse_scores = []
+        mae_scores = []
+        r2_scores = []
+
         for train_idx, val_idx in kf.split(X_train):
             reg = DecisionTreeRegressor(**config, random_state=RANDOM_STATE)
             reg.fit(X_train[train_idx], y_reg_train.iloc[train_idx])
-            score = mean_squared_error(
-                y_reg_train.iloc[val_idx], reg.predict(X_train[val_idx])
-            )
-            scores.append(score)
-        avg_score = np.mean(scores)
-        print(f"CART Config {config}: MSE = {avg_score:.4f}")
+            y_pred = reg.predict(X_train[val_idx])
 
-        if avg_score < best_reg_score:
-            best_reg_score = avg_score
+            # Calculate regression metrics for this fold
+            mse = mean_squared_error(y_reg_train.iloc[val_idx], y_pred)
+            rmse = np.sqrt(mse)  # Root Mean Squared Error
+            mae = mean_absolute_error(y_reg_train.iloc[val_idx], y_pred)
+            r2 = r2_score(y_reg_train.iloc[val_idx], y_pred)
+
+            # Append scores for averaging later
+            rmse_scores.append(rmse)
+            mae_scores.append(mae)
+            r2_scores.append(r2)
+
+        # Calculate average scores across all folds
+        avg_rmse = np.mean(rmse_scores)
+        avg_mae = np.mean(mae_scores)
+        avg_r2 = np.mean(r2_scores)
+
+        # Print the average metrics for this configuration
+        print(f"Config {config}:")
+        print(f"Average RMSE: {avg_rmse:.4f}")
+        print(f"Average MAE: {avg_mae:.4f}")
+        print(f"Average R-squared: {avg_r2:.4f}")
+
+        if avg_rmse < best_reg_score:
+            best_reg_score = avg_rmse
             best_reg_model = DecisionTreeRegressor(**config, random_state=RANDOM_STATE)
 
     # Neural Network Regressor
     for config in nn_reg_configs:
-        scores = []
+        rmse_scores = []
+        mae_scores = []
+        r2_scores = []
+
         for train_idx, val_idx in kf.split(X_train):
             reg = MLPRegressor(**config, random_state=RANDOM_STATE)
             reg.fit(X_train[train_idx], y_reg_train.iloc[train_idx])
-            score = mean_squared_error(
-                y_reg_train.iloc[val_idx], reg.predict(X_train[val_idx])
-            )
-            scores.append(score)
-        avg_score = np.mean(scores)
-        print(f"NN Config {config}: MSE = {avg_score:.4f}")
+            y_pred = reg.predict(X_train[val_idx])
 
-        if avg_score < best_reg_score:
-            best_reg_score = avg_score
+            # Calculate MSE for this fold
+            mse = mean_squared_error(y_reg_train.iloc[val_idx], y_pred)
+            rmse = np.sqrt(mse)  # Root Mean Squared Error
+            mae = mean_absolute_error(y_reg_train.iloc[val_idx], y_pred)
+            r2 = r2_score(y_reg_train.iloc[val_idx], y_pred)
+
+            # Append scores for averaging later
+            rmse_scores.append(rmse)
+            mae_scores.append(mae)
+            r2_scores.append(r2)
+
+        # Calculate average MSE across all folds
+        avg_rmse = np.mean(rmse_scores)
+        avg_mae = np.mean(mae_scores)
+        avg_r2 = np.mean(r2_scores)
+
+        # Print the average metrics for this configuration
+        print(f"Config {config}:")
+        print(f"Average RMSE: {avg_rmse:.4f}")
+        print(f"Average MAE: {avg_mae:.4f}")
+        print(f"Average R-squared: {avg_r2:.4f}")
+
+        if avg_rmse < best_reg_score:
+            best_reg_score = avg_rmse
             best_reg_model = MLPRegressor(**config, random_state=RANDOM_STATE)
 
     # Train final models on full training data
@@ -299,7 +401,7 @@ def plot_clusters(df, save_path="clusters/cluster_visualization.png"):
     plt.close()
 
 
-def create_clusters(env_victims, env_vitals, n_clusters=4):
+def create_clusters(env_victims, env_vitals, n_clusters=8):
     """Create cluster files based on victim locations, gravity, and class."""
     # Merge victim locations with vital signs
     victims_df = pd.DataFrame(env_victims)
@@ -340,12 +442,13 @@ def create_clusters(env_victims, env_vitals, n_clusters=4):
     # Combine features with weights
     # Higher weights for gravity and class to prioritize severity
     # Format: [x, y, gravity * weight, class * weight]
-    GRAVITY_WEIGHT = 1.5
-    CLASS_WEIGHT = 1.2
+    SPATIAL_FEATURE_WEIGHT = 1.4
+    GRAVITY_WEIGHT = 1
+    CLASS_WEIGHT = 1.4
 
     clustering_features = np.hstack(
         [
-            spatial_features,  # x, y coordinates (weight 1.0)
+            spatial_features * SPATIAL_FEATURE_WEIGHT,  # x, y coordinates (weight 1.0)
             gravity_scaled * GRAVITY_WEIGHT,  # gravity with higher weight
             class_scaled * CLASS_WEIGHT,  # class importance with higher weight
         ]
@@ -416,7 +519,7 @@ if __name__ == "__main__":
         create_clusters(
             load_victims(f"datasets/{dataset}/env_victims.txt"),
             load_vitals(f"datasets/{dataset}/env_vital_signals.txt"),
-            n_clusters=4,
+            n_clusters=8,
         )
     else:
         print("Invalid argument. Please use 'train' or 'cluster'.")
